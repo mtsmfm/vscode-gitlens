@@ -26,14 +26,23 @@ export class DiffWithPreviousCommand extends ActiveEditorCommand {
         uri = getCommandUri(uri, editor);
         if (uri === undefined) return undefined;
 
-        args.line = args.line || (editor === undefined ? 0 : editor.selection.active.line);
+        if (args.commit !== undefined && args.commit.type !== 'file') {
+            args.line = 0;
+        }
+        else {
+            args.line = args.line || (editor === undefined ? 0 : editor.selection.active.line);
+        }
 
-        if (args.commit === undefined || (args.commit.type !== 'file') || args.range !== undefined) {
+        if (args.commit === undefined || args.commit.type !== 'file' || args.range !== undefined) {
+            // Since we will be changing the args and they could be cached -- make a copy
+            args = { ...args };
+
             const gitUri = await GitUri.fromUri(uri, this.git);
 
             try {
                 const sha = args.commit === undefined ? gitUri.sha : args.commit.sha;
 
+                // TODO: Look into why we aren't passing in the sha and setting the max to 2
                 const log = await this.git.getLogForFile(gitUri.repoPath, gitUri.fsPath, undefined, sha !== undefined ? undefined : 2, args.range!);
                 if (log === undefined) return Messages.showFileNotUnderSourceControlWarningMessage('Unable to open compare');
 
@@ -56,12 +65,15 @@ export class DiffWithPreviousCommand extends ActiveEditorCommand {
                 this.git.getVersionedFile(args.commit.repoPath, args.commit.previousUri.fsPath, args.commit.previousSha)
             ]);
 
-            await commands.executeCommand(BuiltInCommands.Diff,
+            const promise = commands.executeCommand(BuiltInCommands.Diff,
                 Uri.file(lhs),
                 Uri.file(rhs),
                 `${path.basename(args.commit.previousUri.fsPath)} (${args.commit.previousShortSha}) ${GlyphChars.ArrowLeftRight} ${path.basename(args.commit.uri.fsPath)} (${args.commit.shortSha})`,
                 args.showOptions);
 
+            if (args.line === 0) return promise;
+
+            await promise;
             // TODO: Figure out how to focus the left pane
             return await commands.executeCommand(BuiltInCommands.RevealLine, { lineNumber: args.line, at: 'center' });
         }
